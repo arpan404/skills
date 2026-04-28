@@ -2,149 +2,181 @@
 
 ## Flow
 
-Map:
+Map every screen:
 
 ```txt
-Entry -> primary intent -> main action -> feedback -> next action -> recovery path
+Entry → primary intent → main action → async feedback → result → next action → recovery path
 ```
 
 Define for each screen:
 
 - user goal
-- primary action
+- primary action (one per screen scope)
 - secondary actions
-- destructive actions
-- async actions
-- errors
-- empty/loading/partial/forbidden states
-- next best action
+- destructive actions (require confirmation or undo)
+- async actions (must show pending state)
+- error conditions and recovery
+- empty / loading / partial / forbidden states
+- next best action after completion
 
 Navigation:
 
-- Few destinations: top nav or bottom nav.
-- Many destinations: sidebar or rail.
-- Hierarchical content: tree/sidebar.
-- Dense app: command palette plus persistent nav.
-- Mobile: bottom tabs for top-level, stack for depth.
-- Canvas/tool: toolbar + panels + inspector.
+- Few destinations (≤ 5): top nav bar or bottom tab bar.
+- Many destinations: sidebar or rail with collapse.
+- Hierarchical content: tree + sidebar.
+- Dense complex app: command palette + persistent nav.
+- Mobile: bottom tabs for top-level, stack navigation for depth.
+- Canvas/tool: floating toolbar + fixed panels + inspector drawer.
 
 Multi-screen patterns:
 
-- onboarding/setup: stepper or focused flow
-- record browsing: master-detail
-- editing: editor shell or inspector
-- approval/triage: inbox queue
-- monitoring: command center
-- creation: wizard, modal, drawer, or full editor depending on complexity
+- Onboarding/setup: focused stepper or wizard flow. One decision per step.
+- Record browsing: master-detail split. No full-page navigation for detail.
+- Editing: editor shell or inspector panel. Autosave or explicit save/cancel.
+- Approval/triage: inbox queue with priority, assignment, and bulk actions.
+- Monitoring: command center with live data, alerts first, drill-down available.
+- Creation (simple): modal or drawer with form.
+- Creation (complex): full-page wizard or multi-step editor.
 
 ## Interaction
 
-Timing:
+### Timing (use motion tokens, not raw values)
 
-- hover/focus: 100-150ms
-- small UI transition: 150-220ms
-- panel open: 180-280ms
-- page transition: 200-350ms
-- avoid slow decorative motion
+| Action                     | Duration token        |
+|----------------------------|-----------------------|
+| Hover / focus ring         | `--motion-fast`       |
+| Button press               | `--motion-fast`       |
+| Dropdown open              | `--motion-normal`     |
+| Drawer / panel open        | `--motion-enter`      |
+| Drawer / panel close       | `--motion-exit`       |
+| Modal appear               | `--motion-enter`      |
+| Toast enter                | `--motion-enter`      |
+| Page / route transition    | `--motion-page`       |
+| Tab switch                 | `--motion-normal`     |
 
-Feedback:
+Never use slow decorative motion for interactive transitions.
+Never use `transition: all`.
+Always use `transform` and `opacity` — never animate `width`, `height`, `top`, `left`.
 
-- every click/tap shows response
-- async actions show pending state
-- destructive actions confirm or offer undo
-- errors explain cause and next step
-- optimistic updates include rollback
+### Feedback
 
-Micro-interactions:
+- Every click or tap must produce a visible response within one frame.
+- Async actions: show a pending/spinner state immediately on trigger.
+- Destructive actions: require confirmation dialog or offer immediate undo.
+- Errors: explain the cause and provide a clear recovery action.
+- Optimistic updates: show result immediately, roll back on failure with error explanation.
+- Form save: show saving → saved → (error if failed) state clearly.
 
-- button press
-- field focus
-- save/pending/saved
-- row selected
-- filter applied
-- drawer open/close
-- tab switch
-- upload progress
-- drag/drop target
-- validation
+### Required Micro-Interactions
 
-Forms:
+Every one of these must be animated:
 
-- labels, not placeholder-only
-- inline validation
-- clear required/optional handling
-- input masks when useful
-- error summary for long forms
-- save/cancel states
-- unsaved-change warning
-- keyboard submit behavior
-- disabled-state reason when needed
+| Element                  | Animation requirement                                          |
+|--------------------------|----------------------------------------------------------------|
+| Button hover             | subtle lift (`translateY(-1px)`) or color transition          |
+| Button active/press      | scale down (`scale(0.97–0.98)`)                               |
+| Button loading           | keep label + show spinner; disable pointer events             |
+| Input focus              | border color + focus ring shadow transition                   |
+| Input validation         | error border + message fade-in                                |
+| Checkbox check           | SVG stroke-dashoffset draw animation                          |
+| Toggle / switch          | thumb `translateX` + track color, spring easing               |
+| Row hover                | background color transition                                   |
+| Row select               | accent background transition                                  |
+| Drag pickup              | `scale(1.04)` + shadow elevation                              |
+| Drag over target         | highlight target zone with animated border/background          |
+| Drop                     | spring settle to `scale(1.0)`                                 |
+| Drawer open              | `translateX` or `translateY` from off-screen                  |
+| Drawer close             | reverse translate, faster duration                            |
+| Modal appear             | fade + `translateY(8px→0)` + backdrop fade                    |
+| Modal dismiss            | reverse, faster                                               |
+| Dropdown open            | fade + `translateY(4px→0)` + `scale(0.96→1.0)`                |
+| Toast enter              | slide from edge + fade                                        |
+| Toast exit               | slide back + fade                                             |
+| Tab switch               | indicator slides to active tab                                |
+| Accordion open/close     | CSS grid-template-rows or max-height transition               |
+| Skeleton loading         | shimmer animation matching content layout                     |
+| Upload progress          | smooth progress bar width transition                          |
+| Save/pending/saved       | icon/text morphs through three states                         |
+| Filter applied           | chip appears with fade-in; active count badge updates          |
+
+### Forms
+
+- Always use visible labels above inputs. Never placeholder-only.
+- Inline validation on blur (not on every keystroke).
+- Clear error messages tied to the specific field.
+- Required/optional distinction visible without asterisk spam.
+- Input masks for phone, credit card, date, currency when helpful.
+- Long forms: error summary at top on failed submit.
+- Save/cancel state for non-modal editing forms.
+- Unsaved-change warning before navigation.
+- Keyboard submit via Enter on single-line inputs.
+- Disabled state must include tooltip or helper text explaining why.
 
 ## Components
 
-Reusable component contract:
+Every reusable component must define:
 
-- purpose
-- props/API
-- variants
-- states
-- responsive behavior
-- accessibility behavior
-- error behavior
-- loading behavior
-- content limits
+- **Purpose**: what problem does it solve
+- **Props/API**: what it accepts, defaults, required vs optional
+- **Variants**: size, visual style, intent (primary/secondary/destructive)
+- **States**: default, hover, focus, active, loading, disabled, error, selected, empty
+- **Responsive behavior**: what changes at mobile breakpoints
+- **Accessibility**: role, aria attributes, keyboard behavior, focus management
+- **Animation**: enter, exit, and state-change transitions
 
-Typography:
+### Typography Scale
 
-- use a type scale
-- app body usually 14-17px
-- use tabular figures for numeric data
-- avoid all-caps for long content
-- use semantic text tokens
+- App body: 14–16px (standard), 13–15px (dense)
+- Mobile body: 15–17px
+- Marketing body: 16–19px
+- Use tabular figures (`font-variant-numeric: tabular-nums`) for all numeric data.
+- Avoid ALL-CAPS for more than 2–3 words. Never for body text.
+- Use semantic text color tokens: text, muted, subtle, on-accent, error.
 
-Buttons:
+### Buttons
 
 ```txt
-Primary: one main action per scope
-Secondary: alternative action
-Tertiary/ghost: low-emphasis action
-Destructive: dangerous action
-Icon-only: aria-label, tooltip where useful
-Loading: keep label visible
+Primary      — one per scope. Clear verb label. Loading state keeps label.
+Secondary    — alternative non-destructive action.
+Tertiary/ghost — low-emphasis. Often for cancel.
+Destructive  — red/danger. Confirm before executing.
+Icon-only    — must have aria-label. Show tooltip on hover/focus.
 ```
 
-Inputs:
+All buttons: hover (lift or color), active (scale-down), focus ring, loading spinner, disabled (muted + no pointer events + tooltip why).
 
-- visible labels
-- focus state
-- validation state
-- help text only when needed
-- disabled/read-only distinction
-- prefix/suffix for units/currency
-- clear button for search
+### Inputs
 
-Navigation:
+- Visible label above the field (not inside).
+- Animated focus state (border + glow ring).
+- Animated validation state (border + icon + helper text fade-in).
+- Disabled and read-only must look visually distinct.
+- Prefix/suffix for units, currency, or icons.
+- Search inputs: clear (×) button fades in when value is present.
 
-- show current location
-- preserve selection across refresh
-- support keyboard navigation
-- use breadcrumbs for hierarchy
-- selected state must not rely on color alone
+### Navigation
 
-Feedback components:
+- Always show current location (active state must not rely on color alone).
+- Animated active indicator: slide, underline, or highlight transition.
+- Keyboard: arrows navigate items in sidebar/tabs/menus.
+- Breadcrumbs for hierarchy deeper than 2 levels.
+- Preserve nav selection across page refreshes (URL state or localStorage).
 
-- toast: non-critical confirmation
-- inline error: field/action issue
-- banner: persistent page/system issue
-- modal: blocking decision
-- empty state: plain reason + useful next action
-- skeleton: predictable loading layout
+### Feedback Components
 
-Data display:
+- **Toast**: non-critical confirmation. Auto-dismiss 4–6s. Pause on hover. Stack with stagger. Enter/exit animated.
+- **Inline error**: tied to specific field or action. Fade-in on error. Disappear on fix.
+- **Banner**: persistent page/system issue. Dismissible. High-contrast for critical.
+- **Modal**: blocking decision. Overlay backdrop animated. Focus trapped. ESC closes. Animated enter/exit.
+- **Empty state**: centered, plain headline, one useful sentence, one primary action. No clip art unless product uses illustrations.
+- **Skeleton**: shimmer animation. Must exactly match the shape and dimensions of the loaded content.
+- **Progress**: bar transitions width smoothly. Spinner rotates continuously. Completion animates to 100% then fades.
 
-- table for comparison and operations
-- cards for browseable objects only
-- list for feeds/queues
-- timeline for history
-- map for spatial tasks
-- chart for pattern/trend, not as decoration
+### Data Display
+
+- **Table**: for comparison, operations, bulk actions, sorting. Use for most data-dense scenarios.
+- **Cards**: only for browsable object grids where visual identity of the object matters.
+- **List**: for feeds, queues, search results.
+- **Timeline**: for chronological history or activity log.
+- **Map**: only when location is central to the task.
+- **Chart**: only to show patterns, trends, or composition — not as decoration. Animate draw-in on mount.
