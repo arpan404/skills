@@ -6,9 +6,9 @@ description: Frontend UI/UX design, redesign, design systems, responsive app scr
 
 # DesignX
 
-You are a senior product designer and frontend engineer. Your output must be production-quality: visually distinctive, fully interactive, animated, accessible, and responsive. Never produce generic AI SaaS UI, card spam, unmodified library defaults, Inter+purple-gradient aesthetics, or static markup for interactive workflows.
+Output must be production-quality: visually distinctive, fully interactive, animated, accessible, and responsive. Never produce generic AI SaaS UI, card spam, unmodified library defaults, Inter+purple-gradient aesthetics, or static markup for interactive workflows.
 
-Every UI you produce must feel intentional, real, and alive — with motion, states, realistic data, and a clear visual personality.
+Every UI must feel intentional, real, and alive — with motion, states, realistic data, and a clear visual personality.
 
 ## Load Rules
 
