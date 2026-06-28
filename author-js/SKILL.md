@@ -1,42 +1,74 @@
 ---
 name: author-js
-description: Build, review, or refactor authorization using author.js. Use when adding policies, entities, resources, roles, permissions, relations, parent-resource checks, subscription entitlements, framework middleware, React authorization UI, stores, caching, tests, or migrations for the author.js TypeScript authorization framework.
+description: Skill to build app authorization with author.js, including policies, backend enforcement, UI gates, stores, cache, management APIs, and tests.
 version: 1.0.0
 ---
 
-# author.js
+# author.js skill
 
-Use this skill for any app using author.js, the TypeScript-first authorization framework.
+Use this when adding authorization to an app.
 
-GitHub docs:
+author.js models:
 
-- Overview: https://github.com/arpan404/author-js#readme
-- Docs index: https://github.com/arpan404/author-js/blob/main/docs/README.md
-- Core: https://github.com/arpan404/author-js/blob/main/docs/core.md
-- Management API: https://github.com/arpan404/author-js/blob/main/docs/management.md
-- Adapters: https://github.com/arpan404/author-js/blob/main/docs/adapters.md
-- React: https://github.com/arpan404/author-js/blob/main/docs/react.md
-- Frameworks: https://github.com/arpan404/author-js/blob/main/docs/frameworks.md
-- Testing: https://github.com/arpan404/author-js/blob/main/docs/testing.md
-- Publishing: https://github.com/arpan404/author-js/blob/main/docs/publishing.md
-- Source: https://github.com/arpan404/author-js
-- npm: https://www.npmjs.com/package/author-js
+- `entities`: actors, usually users or API clients
+- `resources`: protected objects
+- `actions`: operations like `read`, `update`, `delete`
+- `policies`: named allow/deny rules
+- `stores`: optional persistence for roles, permissions, relations, audit logs
+- `cache`: optional decision cache, usually Redis
+
+Backend checks are security. React checks only hide UI.
+
+## Docs fallback
+
+Use this skill first. If unsure, check:
+
+- https://github.com/arpan404/author-js#readme
+- https://github.com/arpan404/author-js/tree/main/docs
+- https://www.npmjs.com/package/author-js
 
 ## Install
+
+Use the app package manager:
 
 ```bash
 bun add author-js
 ```
 
-Add adapter peer dependencies only when used:
+Add adapter peers only when used:
 
 ```bash
 bun add pg mongodb redis react
 ```
 
-Use Bun commands. Do not use npm, pnpm, yarn, or Vite unless the project already requires them.
+Do not add DBs, Redis, or React unless the app already uses them or the user asks.
 
-## Core pattern
+## Inspect first
+
+Before coding, identify:
+
+- framework and runtime/package manager
+- auth/session source
+- user shape: `id`, `role`, org/workspace/account ID
+- protected resources and actions
+- backend routes/actions needing enforcement
+- UI controls to hide
+- persistence needs: none, Postgres, MongoDB, Redis
+
+Build the smallest layer that protects the requested feature.
+
+## File location
+
+Use app conventions. Good defaults:
+
+```txt
+src/authorization/author.ts
+src/lib/author.ts
+```
+
+Start with one file.
+
+## Core setup
 
 ```ts
 import {
@@ -47,9 +79,23 @@ import {
   defineResource,
 } from "author-js";
 
-type User = { id: string; role: "admin" | "member" };
-type Project = { id: string; ownerId: string; organizationId: string };
-type AuthContext = { organizationId: string };
+type User = {
+  id: string;
+  role: "admin" | "member";
+  organizationId?: string;
+};
+
+type Project = {
+  id: string;
+  ownerId: string;
+  organizationId: string;
+  status: "draft" | "published";
+};
+
+type AuthContext = {
+  organizationId?: string;
+  ip?: string;
+};
 
 const UserEntity = defineEntity<User>()({
   type: "User",
@@ -70,80 +116,201 @@ export const author = createAuthor({
   resources: { Project: ProjectResource },
   policies: [
     allow("admins can do anything", ({ entity }) => entity.role === "admin"),
+
     allow("owners can update projects", ({ entity, resource, action }) => {
       if (resource.type !== "Project") return false;
       return action === "update" && resource.data.ownerId === entity.id;
     }),
+
+    allow("members can read org projects", ({ entity, resource, action }) => {
+      if (resource.type !== "Project") return false;
+      return (
+        action === "read" &&
+        entity.organizationId === resource.data.organizationId
+      );
+    }),
   ],
 });
-
-await author.as("User", user).can("update").on("Project", project).throw();
 ```
 
-## Design rules
+## Permission checks
 
-- Model real product concepts: `User`, `Organization`, `Project`, `Document`; not generic `Thing`.
-- Require explicit entity/resource types: `author.as("User", user).can("read").on("Project", project)`.
-- Keep authorization centralized. Do not scatter ad-hoc `if (user.role...)` checks through routes/components.
-- Use named policies. Policy names should explain the business rule.
-- Put broad denies before broad allows only when deny semantics are intentional. `deny` overrides `allow`.
-- Prefer small policies over one giant policy function.
-- Use TypeScript discriminated checks: inspect `resource.type` before reading `resource.data` fields.
-- Do not use `any`. Define entity, resource, and context types.
-- Treat backend checks as authoritative. UI checks are for rendering only.
-- Add the smallest test that proves the policy behavior.
+```ts
+const allowed = await author
+  .as("User", user)
+  .can("update")
+  .on("Project", project);
 
-## When to use each model
+await author.as("User", user).can("update").on("Project", project).throw();
 
-- RBAC: stable roles like `admin`, `member`, `billing_admin`.
-- ABAC: object attributes like owner, status, visibility, region, or plan.
-- ReBAC: relationships like owner/member/viewer across resources.
-- Parent checks: inheritance from an organization, workspace, folder, or account.
-- Entitlements: plan features, limits, quota, and subscription gates.
+const decision = await author
+  .as("User", user)
+  .can("update")
+  .on("Project", project)
+  .explain();
+```
 
-Combine them when needed, but do not add a model before the product needs it.
+Use explicit entity/resource names: `"User"`, `"Project"`.
+
+Pass request context when needed:
+
+```ts
+await author
+  .as("User", user)
+  .can("read")
+  .on("Project", project, { organizationId: "org_1" });
+```
+
+## Policy rules
+
+Policies commonly receive:
+
+```ts
+({
+  entity,
+  resource,
+  action,
+  context,
+  entityType,
+  entityId,
+  parents,
+  subscription,
+  features,
+  limits,
+});
+```
+
+Guidelines:
+
+- Name policies after business rules.
+- Return `false` when a policy does not apply.
+- Check `resource.type` before reading `resource.data`.
+- Use `deny` only when override behavior is required.
+- Prefer small policies.
+- Avoid `any`.
+
+Common models:
+
+```ts
+// RBAC
+allow("admins can delete projects", ({ entity, resource, action }) => {
+  return (
+    resource.type === "Project" &&
+    action === "delete" &&
+    entity.role === "admin"
+  );
+});
+
+// ABAC
+allow("published projects are readable", ({ resource, action }) => {
+  return (
+    resource.type === "Project" &&
+    action === "read" &&
+    resource.data.status === "published"
+  );
+});
+
+// ReBAC
+allow("project viewers can read projects", async (ctx) => {
+  if (ctx.resource.type !== "Project" || ctx.action !== "read") return false;
+  return ctx.parents.hasRelation({
+    relation: "viewer",
+    objectType: "Project",
+    objectId: ctx.resource.id,
+  });
+});
+```
+
+## Stores and cache
+
+No store is required for pure policy checks.
+
+```ts
+import { memoryStore } from "author-js";
+import { postgresStore } from "author-js/postgres";
+import { mongodbStore } from "author-js/mongodb";
+import { redisCache } from "author-js/redis";
+```
+
+Use:
+
+- `memoryStore()` for tests/prototypes
+- `postgresStore({ connectionString: process.env.POSTGRES_URL! })` when the app uses Postgres
+- `mongodbStore({ url: process.env.MONGODB_URL!, database: "app" })` when the app uses MongoDB
+- `redisCache({ url: process.env.REDIS_URL!, prefix: "author:" })` only for real cache need
+
+Example:
+
+```ts
+export const author = createAuthor({
+  entities,
+  resources,
+  policies,
+  store: postgresStore({ connectionString: process.env.POSTGRES_URL! }),
+  cache: redisCache({ url: process.env.REDIS_URL!, prefix: "author:" }),
+  cacheTtlMs: 30_000,
+});
+```
+
+Use management helpers for writes so cache invalidation can happen.
 
 ## Management API
 
-Use management helpers for admin screens, setup scripts, and tests:
+Use for admin screens, settings, seeds, and tests.
 
 ```ts
-await author.roles.grant({
-  entityType: "User",
-  entityId: "user_1",
-  role: "admin",
-  scopeType: "Organization",
-  scopeId: "org_1",
-});
+await author.roles.grant({ entityType, entityId, role, scopeType, scopeId });
+await author.roles.list({ entityType, entityId, scopeType, scopeId });
+await author.roles.revoke({ entityType, entityId, role, scopeType, scopeId });
 
 await author.permissions.grant({
-  entityType: "User",
-  entityId: "user_1",
-  action: "read",
-  resourceType: "Project",
-  resourceId: "project_1",
+  entityType,
+  entityId,
+  action,
+  resourceType,
+  resourceId,
   effect: "allow",
+});
+await author.permissions.list({
+  entityType,
+  entityId,
+  resourceType,
+  resourceId,
+});
+await author.permissions.revoke({
+  entityType,
+  entityId,
+  action,
+  resourceType,
+  resourceId,
 });
 
 await author.relations.create({
-  subjectType: "User",
-  subjectId: "user_1",
-  relation: "owner",
-  objectType: "Project",
-  objectId: "project_1",
+  subjectType,
+  subjectId,
+  relation,
+  objectType,
+  objectId,
+});
+await author.relations.list({ subjectType, subjectId, objectType, objectId });
+await author.relations.delete({
+  subjectType,
+  subjectId,
+  relation,
+  objectType,
+  objectId,
 });
 ```
 
-Use these instead of writing directly to adapter tables/collections unless doing a migration.
+Prefer these helpers over raw DB writes.
 
-## Parent checks
+## Parent access
 
-Use parent helpers inside policies when permissions inherit from a parent resource:
+Use when child resources inherit from org/workspace/folder/account.
 
 ```ts
-allow("organization admins can update projects", async (ctx) => {
+allow("org admins can update projects", async (ctx) => {
   if (ctx.resource.type !== "Project" || ctx.action !== "update") return false;
-
   return ctx.parents.hasRole({
     role: "admin",
     objectType: "Organization",
@@ -152,65 +319,55 @@ allow("organization admins can update projects", async (ctx) => {
 });
 ```
 
-Available helpers:
+Helpers:
 
-- `ctx.parents.getRequired`
-- `ctx.parents.hasRole`
-- `ctx.parents.hasPermission`
-- `ctx.parents.hasRelation`
+```ts
+ctx.parents.getRequired({ objectType, objectId });
+ctx.parents.hasRole({ role, objectType, objectId });
+ctx.parents.hasPermission({ action, objectType, objectId });
+ctx.parents.hasRelation({ relation, objectType, objectId });
+```
 
 ## Entitlements
 
-Use subscription helpers for plan-aware authorization:
+Use for plans, feature flags, and quotas.
 
 ```ts
-allow("paid plans can export", async (ctx) => {
+allow("paid plans can export projects", async (ctx) => {
   if (ctx.resource.type !== "Project" || ctx.action !== "export") return false;
   return ctx.features.has("project_export");
 });
 
-allow("within project limit", async (ctx) => {
+allow("workspace is within project limit", async (ctx) => {
   return ctx.limits.within("projects", 1);
 });
 ```
 
-Available helpers:
-
-- `ctx.subscription.plan`
-- `ctx.features.has(name)`
-- `ctx.features.list()`
-- `ctx.limits.get(name)`
-- `ctx.limits.within(name, amount)`
-- `ctx.limits.remaining(name)`
-
-## Adapters
-
-Use the memory store for tests and simple apps:
+Helpers:
 
 ```ts
-import { memoryStore } from "author-js";
+await ctx.subscription.plan();
+await ctx.features.has("feature_name");
+await ctx.features.list();
+await ctx.limits.get("projects");
+await ctx.limits.within("projects", 1);
+await ctx.limits.remaining("projects");
 ```
 
-Use real stores when grants must persist:
+## Backend enforcement
+
+Always check before sensitive reads or mutations.
 
 ```ts
-import { postgresStore } from "author-js/postgres";
-import { mongodbStore } from "author-js/mongodb";
+const user = await getCurrentUser(request);
+const project = await getProject(params.projectId);
+
+await author.as("User", user).can("update").on("Project", project).throw();
+
+await updateProject(project.id, input);
 ```
 
-Use Redis cache only when decision checks are hot or app instances are distributed:
-
-```ts
-import { redisCache } from "author-js/redis";
-```
-
-Do not add Redis just because it exists.
-
-## Frameworks
-
-Backend enforcement belongs in route handlers/middleware.
-
-Imports:
+Adapters:
 
 ```ts
 import { requireCan } from "author-js/express";
@@ -220,36 +377,62 @@ import { requireCan } from "author-js/elysia";
 import { assertCan, requireCan } from "author-js/next/server";
 ```
 
-For mutations, call `.throw()` or `assertCan` before changing data.
+Next.js server pattern:
 
-## React
+```ts
+await assertCan({
+  author,
+  entityType: "User",
+  entity: user,
+  action: "update",
+  resourceType: "Project",
+  resource: project,
+});
+```
 
-UI checks are not security boundaries.
+## React UI
+
+Use only for UI affordances.
 
 ```tsx
 import { AuthorProvider, Can, Cannot, useCan } from "author-js/react";
 
 <AuthorProvider authorization={author} entityType="User" entity={user}>
-  <Can do="update" on="Project" resource={project} fallback={null}>
-    <EditProjectButton />
-  </Can>
-</AuthorProvider>;
+  {children}
+</AuthorProvider>
+
+<Can do="update" on="Project" resource={project} fallback={null}>
+  <EditProjectButton />
+</Can>
+
+const { allowed, loading, decision } = useCan({
+  do: "update",
+  on: "Project",
+  resource: project,
+});
 ```
 
-Next.js client components:
+Next.js client import:
 
 ```tsx
-import { AuthorProvider, Can } from "author-js/next/client";
+import { AuthorProvider, Can, Cannot, useCan } from "author-js/next/client";
 ```
 
-## Testing
+## Tests
 
-Use the smallest test proving the rule:
+Use the app test runner. Cover:
+
+- one allowed case
+- one denied case
+- backend mutation rejection
+
+Bun example:
 
 ```ts
 import { expect, test } from "bun:test";
+import { author } from "../src/authorization/author";
 
-test("owners can update their project", async () => {
+test("owners can update projects", async () => {
   const allowed = await author
     .as("User", { id: "u1", role: "member" })
     .can("update")
@@ -257,48 +440,34 @@ test("owners can update their project", async () => {
       id: "p1",
       ownerId: "u1",
       organizationId: "org1",
+      status: "draft",
     });
 
   expect(allowed).toBe(true);
 });
 ```
 
-Local checks:
+## Workflow to work with author.js
 
-```bash
-bun run fmt:check
-bun run lint
-bun run typecheck
-bun test
-```
+1. Inspect stack, auth, models, resources, and routes.
+2. Pick the smallest fitting model.
+3. Create one `author` module.
+4. Define only needed entities, resources, and actions.
+5. Add named policies.
+6. Enforce on backend before reads/mutations.
+7. Add React gates only for UI.
+8. Add store/cache only when needed.
+9. Add focused tests.
+10. Run relevant checks.
 
-Real adapter tests when changing PostgreSQL, MongoDB, Redis, Docker, or workflow code:
+## Avoid
 
-```bash
-docker compose up -d --wait
-bun run test:integration
-docker compose down
-```
-
-## Review checklist
-
-Before finishing author.js work:
-
-- Is every backend mutation protected by an authorization check?
-- Are entity/resource/action names explicit and typed?
-- Are policies named after business rules?
-- Are UI checks mirrored by backend checks where needed?
-- Did cache invalidation happen after role, permission, or relation writes?
-- Did the change avoid `any` and unsafe casts?
-- Is there one focused test for each new rule?
-- Did you run `bun run fmt:check && bun run lint && bun run typecheck`?
-
-## Common mistakes
-
-- Checking only in React and forgetting the API.
-- Writing raw role queries instead of using `author.roles.*`.
-- Creating a generic `PermissionService` wrapper before the app needs it.
-- Adding Redis caching before measuring hot authorization paths.
-- Using stringly typed resource names outside `defineResource`/checks.
-- Forgetting that `deny` overrides `allow`.
-- Hiding missing context by making fields optional.
+- React-only authorization
+- replacing existing auth/session logic
+- adding Redis without cache need
+- adding unused resources/actions
+- premature `PermissionService` wrappers
+- raw DB writes instead of management helpers
+- forgetting `deny` overrides `allow`
+- optional context just to silence TypeScript
+- reading `resource.data` before checking `resource.type`
